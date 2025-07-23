@@ -19,7 +19,7 @@ The central component is the **EKS Pod Identity Agent**, which runs as a `Daemon
 ```mermaid
 graph TD
     subgraph "EKS Cluster"
-        PIA[EKS Pod Identity Agent<br/>(on node)]
+        PIA["EKS Pod Identity Agent (on node)"]
         subgraph "external-secrets Namespace"
             ESO[ESO Controller Pod]
         end
@@ -48,8 +48,8 @@ graph TD
 
     %% Data Flow
     ESO -->|1. Reads resource| ES
-    ESO -->|2. SDK requests credentials<br/>from metadata endpoint| PIA
-    PIA -->|3. Intercepts call &<br/>checks association| PIAS
+    ESO -->|2. SDK requests credentials from metadata endpoint| PIA
+    PIA -->|3. Intercepts call and checks association| PIAS
     PIAS -->|4. Confirms mapping to| IAMRole
     PIA -->|5. Assumes role via STS| STS
     STS -->|6. Returns temporary credentials| PIA
