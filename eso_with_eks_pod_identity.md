@@ -18,44 +18,34 @@ The central component is the **EKS Pod Identity Agent**, which runs as a `Daemon
 
 ```mermaid
 graph TD
-    subgraph "EKS Cluster"
-        PIA["EKS Pod Identity Agent (on node)"]
-        subgraph "external-secrets Namespace"
+    subgraph EKS["EKS Cluster"]
+        PIA[EKS Pod Identity Agent]
+        subgraph ESNs["external-secrets Namespace"]
             ESO[ESO Controller Pod]
         end
-        subgraph "Application Namespace"
+        subgraph AppNs["Application Namespace"]
             ES[ExternalSecret]
             K8sSecret[Kubernetes Secret]
             AppPod[Application Pod]
         end
     end
     
-    subgraph "AWS"
+    subgraph AWS["AWS Services"]
         PIAS[Pod Identity Association]
         IAMRole[IAM Role for ESO]
         STS[AWS STS]
         SecretASM[AWS Secrets Manager]
     end
 
-    %% Styling
-    classDef k8s fill:#326CE5,stroke:#fff,color:#fff
-    classDef aws fill:#FF9900,stroke:#232F3E,color:#232F3E
-    classDef app fill:#9C27B0,stroke:#fff,color:#fff
-
-    class PIA,ESO k8s;
-    class ES,K8sSecret,AppPod app;
-    class PIAS,IAMRole,STS,SecretASM aws;
-
-    %% Data Flow
     ESO -->|1. Reads resource| ES
-    ESO -->|2. SDK requests credentials from metadata endpoint| PIA
-    PIA -->|3. Intercepts call and checks association| PIAS
+    ESO -->|2. SDK requests credentials| PIA
+    PIA -->|3. Intercepts and checks association| PIAS
     PIAS -->|4. Confirms mapping to| IAMRole
     PIA -->|5. Assumes role via STS| STS
     STS -->|6. Returns temporary credentials| PIA
     PIA -->|7. Provides credentials to SDK| ESO
-    ESO -->|8. Makes DIRECT API call| SecretASM
-    SecretASM -->|9. Returns secret data DIRECTLY| ESO
+    ESO -->|8. Makes API call| SecretASM
+    SecretASM -->|9. Returns secret data| ESO
     ESO -->|10. Creates/Updates| K8sSecret
     AppPod -->|11. Consumes| K8sSecret
 ```
