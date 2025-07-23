@@ -51,36 +51,34 @@ graph TD
     end
     
     %% Configuration Relationships (dashed lines)
-    PIAS -.->|configures| SA
-    PIAS -.->|maps to| IAMRole
+    PIAS -.->|maps ServiceAccount to| IAMRole
     IAMRole -.->|has policy| IAMPolicy
-    CSS -.->|auth config| SA
+    ESO -.->|uses| SA
     ES1 -.->|references| CSS
     ES2 -.->|references| CSS
     
     %% Flow Steps for App Namespace
     ESO -->|1a| ES1
     ES1 -->|2a| CSS
-    CSS -->|3a| SA
-    ESO -->|4a| PIA
-    PIA -->|5a| PIAS
-    PIAS -->|6a| IAMRole
-    IAMRole -->|7a| PIA
-    PIA -->|8a| SecretASM1
-    SecretASM1 -->|9a| PIA
-    PIA -->|10a| ESO
-    ESO -->|11a| K8sSecret1
-    AppPod1 -->|12a| K8sSecret1
+    ESO -->|3a| PIA
+    PIA -->|4a| PIAS
+    PIAS -->|5a| IAMRole
+    IAMRole -->|6a| PIA
+    PIA -->|7a| SecretASM1
+    SecretASM1 -->|8a| PIA
+    PIA -->|9a| ESO
+    ESO -->|10a| K8sSecret1
+    AppPod1 -->|11a| K8sSecret1
     
     %% Flow Steps for Frontend Namespace
     ESO -->|1b| ES2
     ES2 -->|2b| CSS
-    ESO -->|4b| PIA
-    PIA -->|8b| SecretASM2
-    SecretASM2 -->|9b| PIA
-    PIA -->|10b| ESO
-    ESO -->|11b| K8sSecret2
-    AppPod2 -->|12b| K8sSecret2
+    ESO -->|3b| PIA
+    PIA -->|7b| SecretASM2
+    SecretASM2 -->|8b| PIA
+    PIA -->|9b| ESO
+    ESO -->|10b| K8sSecret2
+    AppPod2 -->|11b| K8sSecret2
     
     %% Styling
     classDef awsService fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#FFFFFF
@@ -96,30 +94,29 @@ graph TD
 
 ## Flow Steps Explanation
 
-The diagram shows how one ClusterSecretStore serves multiple application namespaces:
+The diagram shows how Pod Identity automatically handles authentication without requiring ServiceAccount references in ClusterSecretStore:
 
 ### Primary Flow (App Namespace):
 1. **ESO Controller** reads ExternalSecret in app namespace
-2. **ExternalSecret** references ClusterSecretStore
-3. **ClusterSecretStore** specifies ServiceAccount for authentication
-4. **ESO** makes AWS API call (intercepted by Pod Identity Agent)
-5. **Pod Identity Agent** checks Pod Identity Association
-6. **Pod Identity Association** assumes the mapped IAM Role
-7. **IAM Role** returns temporary credentials to Pod Identity Agent
-8. **Pod Identity Agent** forwards authenticated call to AWS Secrets Manager
-9. **AWS Secrets Manager** returns secret data to Pod Identity Agent
-10. **Pod Identity Agent** forwards secret data back to ESO Controller
-11. **ESO Controller** creates Kubernetes Secret in target namespace
-12. **Application Pod** consumes the Kubernetes Secret
+2. **ExternalSecret** references ClusterSecretStore (no auth config needed)
+3. **ESO** makes AWS API call (automatically intercepted by Pod Identity Agent)
+4. **Pod Identity Agent** checks Pod Identity Association for ESO's ServiceAccount
+5. **Pod Identity Association** assumes the mapped IAM Role
+6. **IAM Role** returns temporary credentials to Pod Identity Agent
+7. **Pod Identity Agent** forwards authenticated call to AWS Secrets Manager
+8. **AWS Secrets Manager** returns secret data to Pod Identity Agent
+9. **Pod Identity Agent** forwards secret data back to ESO Controller
+10. **ESO Controller** creates Kubernetes Secret in target namespace
+11. **Application Pod** consumes the Kubernetes Secret
 
 ### Secondary Flow (Frontend Namespace):
-The same flow (steps 1b-12b) occurs simultaneously for other namespaces, all using the same ClusterSecretStore and authentication mechanism.
+The same flow (steps 1b-11b) occurs simultaneously for other namespaces, all using the same simplified ClusterSecretStore.
 
 ### Key Architecture Points:
-- **Single ClusterSecretStore**: One configuration serves multiple namespaces
-- **Centralized Authentication**: ESO Controller handles all AWS authentication
-- **Namespace Isolation**: Secrets are created in their respective target namespaces
-- **Cross-Namespace Operation**: ESO can create secrets in any namespace while running in external-secrets namespace
+- **No Auth Configuration**: ClusterSecretStore requires no ServiceAccount reference
+- **Automatic Authentication**: Pod Identity Agent handles all AWS authentication
+- **ServiceAccount Mapping**: Pod Identity Association maps ESO's ServiceAccount to IAM role
+- **Centralized & Simple**: One clean ClusterSecretStore serves multiple namespaces
 
 ## Prerequisites
 
@@ -230,6 +227,8 @@ aws eks describe-pod-identity-association \
 
 ### Step 6: Create ClusterSecretStore
 
+With Pod Identity, the ClusterSecretStore configuration is much simpler - **no ServiceAccount reference needed**:
+
 ```yaml
 apiVersion: external-secrets.io/v1beta1
 kind: ClusterSecretStore
@@ -240,10 +239,9 @@ spec:
     aws:
       service: SecretsManager
       region: us-west-2  # Change to your AWS region
-      auth:
-        serviceAccount:
-          name: external-secrets
-          namespace: external-secrets
+  retrySettings:
+    maxRetries: 5
+    retryInterval: 10s
 ```
 
 Apply the configuration:
@@ -251,6 +249,8 @@ Apply the configuration:
 ```bash
 kubectl apply -f cluster-secret-store.yaml
 ```
+
+**Important Note**: Unlike IRSA, Pod Identity does **not** require an `auth.serviceAccount` section in the ClusterSecretStore. The Pod Identity Agent automatically handles authentication for any pod with a valid Pod Identity Association.
 
 ### Step 7: Create ExternalSecret
 
@@ -469,17 +469,19 @@ kubectl logs -n kube-system -l app=eks-pod-identity-agent
 
 ### Issue: ClusterSecretStore shows "SecretStore validation failed"
 
-**Solution**: Ensure the ClusterSecretStore has the correct ServiceAccount reference:
+**Solution**: With Pod Identity, ensure your ClusterSecretStore has NO ServiceAccount reference (this is different from IRSA):
 
 ```yaml
+# Correct for Pod Identity
 spec:
   provider:
     aws:
-      auth:
-        serviceAccount:
-          name: external-secrets
-          namespace: external-secrets
+      service: SecretsManager
+      region: your-region
+  # No auth section needed!
 ```
+
+If you have an `auth.serviceAccount` section, remove it when using Pod Identity.
 
 ### Issue: "Access denied" errors
 
@@ -525,11 +527,15 @@ kubectl get deployment external-secrets -n external-secrets -o yaml | grep servi
 
 ## Benefits of Pod Identity over IRSA
 
-- **Simplified Configuration**: No OIDC provider setup required
+## Benefits of Pod Identity over IRSA
+
+- **Simplified Configuration**: No ServiceAccount references needed in SecretStores
+- **Automatic Authentication**: Pod Identity Agent handles all credential management
 - **Better Performance**: Credentials cached by Pod Identity Agent
 - **Enhanced Security**: Credentials never stored in pods
 - **Improved Observability**: Better logging and audit trails
 - **Centralized Management**: Pod Identity Associations managed through AWS APIs
+- **Cleaner YAML**: Eliminates complex auth configurations in SecretStore resources
 
 ## Security Best Practices
 
