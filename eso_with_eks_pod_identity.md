@@ -16,6 +16,8 @@ The central component is the **EKS Pod Identity Agent**, which runs as a `Daemon
 
 ### Corrected Architecture Flow
 
+# EKS Pod Identity Flow Diagram
+
 ```mermaid
 graph TD
     subgraph EKS["EKS Cluster"]
@@ -37,22 +39,22 @@ graph TD
         SecretASM[AWS Secrets Manager]
     end
 
-    ESO -->|1. Reads resource| ES
-    ESO -->|2. SDK requests credentials| PIA
-    PIA -->|3. Intercepts and checks| PIAS
-    PIAS -->|4. Confirms mapping| IAMRole
-    PIA -->|5. Assumes role| STS
-    STS -->|6. Returns credentials| PIA
-    PIA -->|7. Provides credentials| ESO
-    ESO -->|8. Makes API call| SecretASM
-    SecretASM -->|9. Returns secret data| ESO
-    ESO -->|10. Creates/Updates| K8sSecret
-    AppPod -->|11. Consumes| K8sSecret
+    ESO --> ES
+    ESO --> PIA
+    PIA --> PIAS
+    PIAS --> IAMRole
+    PIA --> STS
+    STS --> PIA
+    PIA --> ESO
+    ESO --> SecretASM
+    SecretASM --> ESO
+    ESO --> K8sSecret
+    AppPod --> K8sSecret
 ```
 
-### Flow Steps Explanation
+## Flow Steps Explanation
 
-The diagram shows the corrected authentication flow:
+The diagram shows the authentication flow for External Secrets Operator with EKS Pod Identity:
 
 1. **Read ExternalSecret**: The ESO Controller detects an ExternalSecret resource in an application namespace.
 
@@ -60,19 +62,21 @@ The diagram shows the corrected authentication flow:
 
 3. **Intercept & Validate**: The Pod Identity Agent running on the node intercepts this call. It checks for a PodIdentityAssociation that maps the pod's ServiceAccount to an IAM Role.
 
-4. **Assume Role**: Finding a valid association, the agent calls AWS STS to assume the mapped IAM Role.
+4. **Confirm Mapping**: The Pod Identity Association confirms the mapping between the ServiceAccount and the IAM Role.
 
-5. **Receive Credentials**: STS returns temporary, short-lived AWS credentials to the agent.
+5. **Assume Role**: Finding a valid association, the agent calls AWS STS to assume the mapped IAM Role.
 
-6. **Provide Credentials**: The agent passes these credentials back to the AWS SDK inside the ESO pod. The agent's job is now done for this request.
+6. **Return Credentials**: STS returns temporary, short-lived AWS credentials to the agent.
 
-7. **Direct API Call**: Now fully authenticated, the ESO pod makes a direct API call to AWS Secrets Manager to fetch the secret value.
+7. **Provide Credentials**: The agent passes these credentials back to the AWS SDK inside the ESO pod.
 
-8. **Receive Secret Data**: AWS Secrets Manager validates the credentials and returns the secret data directly to the ESO pod.
+8. **Make API Call**: Now fully authenticated, the ESO pod makes a direct API call to AWS Secrets Manager to fetch the secret value.
 
-9. **Create Kubernetes Secret**: The ESO controller creates a native Kubernetes Secret in the target namespace with the data it received.
+9. **Return Secret Data**: AWS Secrets Manager validates the credentials and returns the secret data directly to the ESO pod.
 
-10. **Consume Secret**: The application pod mounts or consumes the Kubernetes Secret as environment variables.
+10. **Create Kubernetes Secret**: The ESO controller creates a native Kubernetes Secret in the target namespace with the data it received.
+
+11. **Consume Secret**: The application pod mounts or consumes the Kubernetes Secret as environment variables.
 
 ## Prerequisites
 
