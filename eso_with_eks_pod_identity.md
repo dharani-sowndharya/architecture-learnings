@@ -37,17 +37,17 @@ graph TD
         SecretASM[AWS Secrets Manager]
     end
 
-    ESO -->|1| ES
-    ESO -->|2| PIA
-    PIA -->|3| PIAS
-    PIAS -->|4| IAMRole
-    PIA -->|5| STS
-    STS -->|6| PIA
-    PIA -->|7| ESO
-    ESO -->|8| SecretASM
-    SecretASM -->|9| ESO
-    ESO -->|10| K8sSecret
-    AppPod -->|11| K8sSecret
+    ESO -->|1. Reads resource| ES
+    ESO -->|2. SDK requests credentials| PIA
+    PIA -->|3. Intercepts and checks| PIAS
+    PIAS -->|4. Confirms mapping| IAMRole
+    PIA -->|5. Assumes role| STS
+    STS -->|6. Returns credentials| PIA
+    PIA -->|7. Provides credentials| ESO
+    ESO -->|8. Makes API call| SecretASM
+    SecretASM -->|9. Returns secret data| ESO
+    ESO -->|10. Creates/Updates| K8sSecret
+    AppPod -->|11. Consumes| K8sSecret
 ```
 
 ### Flow Steps Explanation
